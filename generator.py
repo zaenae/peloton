@@ -55,6 +55,78 @@ def rank_mod2(mat):
         rank+=1
     return rank
 
+#gets the nullspace basis mod 2 needed to find logical ops
+def nullspace_mod2(mat):
+    mat=mat.copy()%2
+    rows,cols=mat.shape
+    m=mat.copy()
+    pivot_cols=[]
+    r=0
+    for c in range(cols):
+        piv=None
+        for rr in range(r,rows):
+            if m[rr,c]:
+                piv=rr
+                break
+        if piv is None:
+            continue
+        m[[r,piv]]=m[[piv,r]]
+        for rr in range(rows):
+            if rr!=r and m[rr,c]:
+                m[rr]=(m[rr]+m[r])%2
+        pivot_cols.append(c)
+        r+=1
+    free_cols=[c for c in range(cols) if c not in pivot_cols]
+    basis=[]
+    for fc in free_cols:
+        vec=np.zeros(cols,dtype=np.uint8)
+        vec[fc]=1
+        for i,pc in enumerate(pivot_cols):
+            vec[pc]=m[i,fc]
+        basis.append(vec)
+    return basis
+
+def row_reduce(mat):
+    mat=mat.copy()%2
+    rows,cols=mat.shape
+    r=0
+    pivot_cols=[]
+    for c in range(cols):
+        piv=None
+        for rr in range(r,rows):
+            if mat[rr,c]:
+                piv=rr
+                break
+        if piv is None:
+            continue
+        mat[[r,piv]]=mat[[piv,r]]
+        for rr in range(rows):
+            if rr!=r and mat[rr,c]:
+                mat[rr]=(mat[rr]+mat[r])%2
+        pivot_cols.append(c)
+        r+=1
+    return mat[:r],pivot_cols
+
+def reduce_vec(vec,rref,pivot_cols):
+    vec=vec.copy()%2
+    for i,pc in enumerate(pivot_cols):
+        if vec[pc]:
+            vec=(vec+rref[i])%2
+    return vec
+
+#finds k logical ops that commute w the other check type but arent stabilizeRs
+def find_logicals(h_this_type,h_other_type,k):
+    ker=nullspace_mod2(h_other_type)
+    rref,pivots=row_reduce(h_this_type)
+    logicals=[]
+    for v in ker:
+        red=reduce_vec(v,rref,pivots)
+        if red.any():
+            logicals.append(v)
+        if len(logicals)==k:
+            break
+    return logicals
+
 
 def save_code(hx,hz,r,b):
     #dumpsmatrices for gurobi load
@@ -71,7 +143,7 @@ args=parser.parse_args()
 if args.r is not None and args.b is not None:
     test_cases=[(args.r,args.b)]
 else:
-    # quick test on the two codes we actually know the answer for
+    #qquick test on the two codes
     test_cases=[(1,1),(2,0)] #gross& two-gross
 
 for r,b in test_cases:
@@ -80,10 +152,10 @@ for r,b in test_cases:
 
     check= (hx @ hz.T)%2
     if check.any():
-        print(" hx and hz dont commute, something is wrong")
+        print("hx and hz dont commute, WRONG")
         continue
 
-    #every check should touch 6 qubits (3 from A, 3 from B), if not something's off
+    #every check should touch 6 qubits - 3 from Aand 3 from B if not something's off
     rw =hx.sum(axis=1)
     rwz =hz.sum(axis=1)
     if not (rw==6).all() or not (rwz==6).all():
@@ -92,5 +164,9 @@ for r,b in test_cases:
 
     k = n-rank_mod2(hx)-rank_mod2(hz)
     print("r =",r,"b =",b," ell=",ell,"m=",m,"  n=",n,"k=",k)
+
+    x_logicals=find_logicals(hx,hz,k)
+    z_logicals=find_logicals(hz,hx,k)
+    print("  found",len(x_logicals),"x logicals and",len(z_logicals),"z logicals")
 
     save_code(hx,hz,r,b)
