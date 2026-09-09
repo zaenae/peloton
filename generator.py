@@ -1,7 +1,8 @@
 ﻿import numpy as np
 import argparse
 import os
-
+import gurobipy as gp
+from gurobipy import GRB
 #values from the  tour de gross paper ssssssssssssssssss
 #appendix A.1A = 1 + y + x^3 y^-1 , B = 1 + x + x^-1 y^-3
 
@@ -126,6 +127,42 @@ def find_logicals(h_this_type,h_other_type,k):
         if len(logicals)==k:
             break
     return logicals
+def complement_basis(kernel_basis, stabilizer_matrix):
+    """returns G such that
+        ker(H_other) =row(H_this)direct-sum span(G)
+
+    #all arithmetic is over GF(2).
+    """
+
+    stab, _ = row_reduce(stabilizer_matrix)
+
+    current = stab.copy()
+    logicals = []
+
+    target_dim = len(kernel_basis)
+
+    for v in kernel_basis:
+        if len(current) == 0:
+            reduced = v.copy()
+        else:
+            reduced = reduce_vec(
+                v,
+                *row_reduce(current)
+            )
+
+        if reduced.any():
+            logicals.append(v.copy())
+
+            if len(current) == 0:
+                current = v.reshape(1, -1)
+            else:
+                current = np.vstack([current, v])
+
+            # Stop once kernel dimension is reached
+            if len(logicals) + len(stab) == target_dim:
+                break
+
+    return np.array(logicals, dtype=np.uint8)
 
 
 def save_code(hx,hz,r,b):
@@ -163,6 +200,14 @@ for r,b in test_cases:
         continue
 
     k = n-rank_mod2(hx)-rank_mod2(hz)
+    print("\n validation ")
+    print("n =", n)
+    print("rank(Hx) =", rank_mod2(hx))
+    print("rank(Hz) =", rank_mod2(hz))
+    print("k =", k)
+    print("Hx Hz^T =", "ZERO" if not check.any() else "NONZERO")
+    print("Hx row weights:", np.unique(rw, return_counts=True))
+    print("Hz row weights:", np.unique(rwz, return_counts=True))
     print("r =",r,"b =",b," ell=",ell,"m=",m,"  n=",n,"k=",k)
 
     x_logicals=find_logicals(hx,hz,k)
@@ -170,3 +215,20 @@ for r,b in test_cases:
     print("  found",len(x_logicals),"x logicals and",len(z_logicals),"z logicals")
 
     save_code(hx,hz,r,b)
+
+    #test complement construction
+
+Hx, Hz, ell, m = make_code(1, 1)
+ker_hz = nullspace_mod2(Hz)
+ker_hx = nullspace_mod2(Hx)
+
+Gx = complement_basis(ker_hz, Hx)
+Gz = complement_basis(ker_hx, Hz)
+
+print("dim ker(Hz) =", len(ker_hz))
+print("dim row(Hx) =", rank_mod2(Hx))
+print("dim Gx     =", len(Gx))
+
+print("dim ker(Hx) =", len(ker_hx))
+print("dim row(Hz) =", rank_mod2(Hz))
+print("dim Gz     =", len(Gz))
